@@ -21,7 +21,7 @@ KernStart:
     
     mov edi, 0x500
     
-    .Clear:
+    .Clear:				; Clearing space for some data structures.
         mov dword [edi], 0
         add edi, 4
         
@@ -32,7 +32,7 @@ KernStart:
     mov esi, 0x14600+Strings.Panic1
     mov ecx, (80*3)<<1
     
-    .Clear2:
+    .Clear2:				; Writing the kernel panic screen to "Cached Screens"...
         mov al, [esi]
         mov ah, 0x0F
         mov word [edi], ax
@@ -43,7 +43,7 @@ KernStart:
     
     mov ecx, (80*2)<<1
     
-    .Clear3:
+    .Clear3:				; ...Writing some more of it in a different color...
         mov al, [esi]
         mov ah, 0x0C
         mov word [edi], ax
@@ -54,7 +54,7 @@ KernStart:
     
     mov ecx, (80*13)<<1
     
-    .Clear4:
+    .Clear4:				; ... and again ...
         mov al, [esi]
         mov ah, 0x0F
         mov word [edi], ax
@@ -65,7 +65,7 @@ KernStart:
     
     mov ecx, (80*6)<<1
     
-    .Clear5:
+    .Clear5:				; ... and again.
         mov al, [esi]
         mov ah, 0x0F
         mov word [edi], ax
@@ -81,7 +81,7 @@ KernStart:
     mov word [1500+0x62], 0x64
 
     xchg bx, bx
-    
+    					; Setting up GDT...
 		    ;---------------------00 - NULL
     mov edi, GDTTableLoc
     mov dword [edi], 0
@@ -170,7 +170,7 @@ KernStart:
     mov cl, 1
     mov [edi], ecx
     
-    add edi, 4      ;---------------------28 - Screen
+    add edi, 4      ;---------------------28 - Screen - Stored in GS.
     		    ;b8000 - bffff
     mov bx, 0x8000
     mov ax, 0xFFFF
@@ -209,7 +209,7 @@ KernStart:
     mov cl, 0x1
     mov [edi], ecx
     
-    add edi, 4      ;---------------------38 - VidBuffer Pointers
+    add edi, 4      ;---------------------38 - VidBuffer Pointers - AKA Locations of cached screens.
 		    ;15a00 - 15fff
     
     mov bx, 0x5A00
@@ -270,7 +270,7 @@ KernStart:
     mov [edi], ecx
     
     add edi, 4      ;---------------------
-    
+    					; Writing GDTR to the end of GDT...
     mov esi, edi
     sub esi, GDTTableLoc
     dec esi
@@ -299,7 +299,7 @@ KernStart:
     
     call Display.Clear
     
-    mov eax, 0x0A440A47
+    mov eax, 0x0A440A47			; Printing "GDT" in green
     mov edi, 0
     mov [gs:edi], eax
     add edi, 4
@@ -347,7 +347,7 @@ KernStart:
     mov al, 11111111b
     out 0xA1, al
     
-    mov eax, 0x0A490A50
+    mov eax, 0x0A490A50			; Printing "PIC" in green
     mov gs:[edi], eax
     add edi, 4
     mov eax, 0x0A43
@@ -355,7 +355,7 @@ KernStart:
     add edi, 4
     
     push edi
-    
+    					; Setting up IDTR...
     mov edi, 0x14300-0x1500-0x64-6-1
     mov word [edi], 0x14300-6-(IDTTableLoc+0x1564)-1
     inc edi
@@ -395,8 +395,8 @@ KernStart:
     lidt [ds:edi]
 
     pop edi
-
-    mov eax, 0x0A440A49
+	 
+    mov eax, 0x0A440A49			; Printing "IDT" in green
     mov gs:[edi], eax
     add edi, 4
     mov eax, 0x0A54
@@ -407,7 +407,7 @@ KernStart:
     
     call ATA.init
 
-    mov eax, 0x0A540A41
+    mov eax, 0x0A540A41			; Printing "ATA" in green
     mov gs:[edi], eax
     add edi, 4
     mov eax, 0x0A41
@@ -423,10 +423,10 @@ KernStart:
 
     xchg bx, bx
 
-    call ATA.readSectors
+    call ATA.readSectors		; Reading INFO sector
     pop edi
     
-    mov eax, 0x0A4E0A49
+    mov eax, 0x0A4E0A49			; Printing "INFO" in green
     mov gs:[edi], eax
     add edi, 4
     mov eax, 0x0A4F0A46
@@ -440,7 +440,7 @@ KernStart:
     mov ax, 0x38
     mov es, ax
     
-    mov byte [es:edi], 00000011b
+    mov byte [es:edi], 00000011b	; Setting up System VidBuffer
     inc edi
     inc edi
     mov dword [es:edi], 0x3000-0x1564
@@ -449,7 +449,7 @@ KernStart:
     mov ax, 0x18
     mov es, ax
     
-    screencopyloop:
+    screencopyloop:			; Copying current screen to current VidBuffer
 	mov eax, [gs:esi]
 	mov [es:edi], eax
 	add esi, 4
@@ -467,9 +467,9 @@ KernStart:
     mov ax, 0x18
     mov ds, ax
     
-    mov eax, dword [ds:0x13600-0x1564]
+    mov eax, dword [ds:0x13600-0x1564]	; Grabbing INFO sector signature
     
-    cmp eax, 0x40045005
+    cmp eax, 0x40045005			; Checking said signature
     je $
     
     pop ds
@@ -483,10 +483,10 @@ KernStart:
 
     xchg bx, bx
 
-    call ATA.readSectors
+    call ATA.readSectors		; Reading file descriptor sector
     
     
-    mov al, [es:0x13600-0x1564+3]
+    mov al, [es:0x13600-0x1564+3]	; Getting terminal file number
     
     xor ecx, ecx
     mov cl, al
@@ -494,9 +494,9 @@ KernStart:
     
     xchg bx, bx
     
-    findfileloop:
+    selectfileloop:			; Selecting terminal file
 	add esi, 20
-	loop findfileloop
+	loop selectfileloop
     
     dec esi
     add esi, 0x13000-0x1564
@@ -508,7 +508,7 @@ KernStart:
     xor edi, edi
     xchg bx, bx
     
-    call ATA.readSectors
+    call ATA.readSectors		; Reading terminal file
     pop edi
     
 	; 
@@ -576,7 +576,7 @@ Exceptions:
     
     .GP:
         cli      ;ff4
-        push eax 
+        push eax 			; Messing with the stack
         push ebx 
         push ecx 
         push edx 
@@ -627,7 +627,7 @@ Exceptions:
         
         xor ecx, ecx
         xor eax, eax
-        int 30h
+        int 30h				; Using Syscall to switch vidBuffers - ignore this for now
         
         pop ecx
         pop ax
@@ -1313,7 +1313,6 @@ ATA:
 
 
 Strings:
-    .ShellPrompt: db '(FlameShell)- \', 0
     .Panic1:
         db ',------------------------------------------------------------------------------,'
         db '                                                                                '
