@@ -1,5 +1,4 @@
 BuildFS: FS.bin
-	truncate "Builds/FS.bin" -s 1200k
 	cp "Builds/FS.bin" "Builds/FlameOS.img"
 	if test -f "Builds/FlameOS.vdi"; then rm "Builds/FlameOS.vdi"; fi
 	VBoxManage convertfromraw "Builds/FlameOS.img" "Builds/FlameOS.vdi"
