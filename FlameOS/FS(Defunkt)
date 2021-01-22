@@ -1,0 +1,484 @@
+ [ BITS 32 ]
+ [ org 0x1500]
+
+; Stuff for the filesystem
+
+ATA1Port equ 0x1F0
+InfoSector equ 0x2A00
+VIDMEM equ 0xB8000
+DescriptorsStart equ 0x2C00
+DataStart equ 0x2E00
+    
+
+LoadingSectors:
+    call ATAinit
+    
+    mov ax, 0
+    mov [VIDMEM+2], ax
+    mov [VIDMEM+4], ax
+    
+    mov edi, InfoSector
+    mov cx, 0
+    mov ax, 11
+    
+    call ATAReadSectors
+    
+    mov edi, DescriptorsStart
+    mov ax, 12
+    
+    call ATAReadSectors
+    
+    mov edi, InfoSector
+    
+    cmp dword [edi], 0xEADFAAFF
+    jne .fail
+    call .success1
+    
+    mov esi, .kernelfile
+    mov edi, DataStart
+    call LoadFile
+    
+    cmp dword [edi], 0
+    je .fail
+    call .success3
+    
+    jmp DataStart
+    
+    .success1:
+        pusha
+        
+        mov al, '1'
+        mov ah, 0x2F
+        
+        mov [VIDMEM+2], ax
+        
+        popa
+        ret
+        
+    .success2:
+        pusha
+        
+        mov al, '2'
+        mov ah, 0x2F
+        
+        mov [VIDMEM+4], ax
+        
+        popa
+        ret
+        
+    .success3:
+        pusha
+        
+        mov al, '3'
+        mov ah, 0x2F
+        
+        mov [VIDMEM+6], ax
+        
+        popa
+        ret
+        
+    .fail:
+        mov esi, edi
+        mov al, 'F'
+        mov ah, 0x4C
+        mov edi, VIDMEM
+        
+        mov [edi], ax
+        
+        xor ecx, ecx
+        xor edx, edx
+        xor eax, eax
+        add edi, 4
+        
+        .fail.loop:
+            add edi, 2
+            inc cx
+            
+            mov al, [esi]
+            
+            shr al, 4
+            mov dl, al
+            
+            push dx
+            
+            mov ax, .HEXTABLE
+            add ax, dx
+            mov dl, [eax]
+            mov ah, 0x70
+            mov al, dl
+            
+            mov [edi], ax
+            
+            add edi, 2
+            
+            pop dx
+            
+            shl dl, 4
+            mov al, [esi]
+            sub al, dl
+            mov dl, al
+            mov ax, .HEXTABLE
+            add ax, dx
+            mov dl, [eax]
+            mov ah, 0x70
+            mov al, dl
+            
+            mov [edi], ax
+            
+            inc esi
+            cmp cx, 512
+            jne .fail.loop
+        
+    .halt:
+        jmp $
+    
+    .SectorCount: dw 0x0000
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+    
+    .kernelfile: db 'Kernel.bin', 0
+
+Print16Hex:
+    pusha
+    
+    xor eax, eax
+    
+    mov edi, 0xb8000
+    mov si, [.N]
+    
+    shl esi, 1
+    and esi, 0xffff
+    add edi, esi
+    
+    mov ax, bx
+    shr ax, 12
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 8
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 4
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    xor ax, ax
+    mov [edi], ax
+    
+    add word [.N], 5
+    
+    popa
+    ret
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+    .N: dw 0
+
+
+ATAinit:
+    pusha
+    
+    mov dx, ATA1Port+7
+    in al, dx
+    
+    cmp al, 0xff
+    je .noDisk
+    
+    mov dx, ATA1Port+6
+    mov al, 0xE0
+    out dx, al
+    
+    inc dx
+    
+    mov cx, 5
+    
+    rep in al, dx
+    
+    mov dx, ATA1Port+5
+    
+    mov al, 0
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    mov dx, ATA1Port+7
+    mov al, 0xEC
+    out dx, al
+    
+    in al, dx
+    
+    cmp al, 0
+    jne .diskFound
+    
+    test al, 0
+    jnz .packetedATA
+
+    .noDisk:
+        cli
+        hlt
+    
+    .packetedATA:
+        jmp .noDisk
+    
+    .diskFound:
+        in al, dx
+        
+        test al, 7
+        jnz .diskFound
+        
+        mov dx, ATA1Port+4
+        in al, dx
+        
+        cmp al, 0
+        jne .packetedATA
+        
+        mov dx, ATA1Port+7
+        
+        cmp al, 0
+        jne .packetedATA
+        
+        call IOWait
+        
+        mov dx, ATA1Port
+        mov ax, 0x10
+        mov es, ax
+        mov di, 0x7c00
+        mov ecx, 253
+        
+        rep insw
+        
+        mov dx, ATA1Port+7
+        in al, dx
+        
+        popa
+        ret
+    
+ATAReadSectors:  ; edi - buffer location, ax - sector location, cx - ammount of sectors.
+    pusha
+    push cx
+    push ax
+    
+    mov dx, ATA1Port+2
+    mov al, 1
+    
+    out dx, al
+    
+    inc dx
+    
+    pop ax
+    out dx, al
+    
+    inc dx
+    mov al, 0
+    
+    out dx, al
+    
+    inc dx
+    
+    out dx, al
+    
+    mov dx, ATA1Port+7
+    mov al, 20h
+    
+    out dx, al
+    
+    call IOWait
+    
+    .1:
+    
+    mov ecx, 256
+    mov dx, ATA1Port
+    
+    rep insw
+    
+    test al, 0x21
+    jz .fail
+    
+    pop cx
+    
+    cmp cx, 0
+    jne .repeat
+    
+    popa
+    ret
+    
+    .repeat:
+        dec cx
+        push cx
+        jmp .1
+    
+    .fail:
+        mov dx, ATA1Port+1
+        in al, dx
+        
+        mov edi, 0xb8000
+        
+        shr al, 4
+        mov dl, al
+        
+        push edx
+        
+        mov eax, .HEXTABLE
+        add eax, edx
+        mov dl, [eax]
+        mov ah, 0x70
+        mov al, dl
+        
+        mov [edi], ax
+        
+        add edi, 2
+        
+        pop edx
+        
+        shl dl, 4
+        mov al, [esi]
+        sub al, dl
+        mov dl, al
+        mov eax, .HEXTABLE
+        add eax, edx
+        mov dl, [eax]
+        mov ah, 0x70
+        mov al, dl
+        
+        mov [edi], ax
+        
+        jmp $
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+    
+LoadFile: ; esi - location of file name to search for, edi - buffer for file.
+    pusha
+    push edi
+    
+    mov edi, DescriptorSectorPos+3
+    xor ecx, ecx
+    
+    .loop:
+        cmp byte [esi], 0
+        je .end
+        
+        mov al, [edi]
+        cmp [esi], al
+        je .correct
+        
+        sub esi, ecx
+        sub edi, ecx
+        add esi, 46
+        xor ecx, ecx
+        
+        jmp .loop
+    
+    .correct:
+        inc esi
+        inc edi
+        inc ecx
+        
+        jmp .loop
+    
+    .end:
+        sub edi, ecx
+        sub edi, 2
+        
+        xor ecx, ecx
+        mov al, [edi]
+        
+        inc edi
+        mov cl, [edi]
+        
+        pop edi
+        
+        call ATAReadSectors
+        
+        popa
+        ret
+
+IOWait:
+    pusha
+    mov dx, ATA1Port+7
+    
+    .loop:
+        in al, dx
+        
+        test al, 0
+        jnz ATAinit.noDisk
+        
+        test al, 3
+        jz IOWait.loop
+        
+        popa
+        ret
+    
+SectorOp:
+    .Dump:
+        
+
+times 10*512-($-$$) db 0
+
+
+InfoSectorPos:
+    dd 0xEADFAAFF
+    dw 0x0006
+    dw 0x0000
+
+times 512-($-InfoSectorPos) db 0
+
+DescriptorSectorPos:
+    .kernel.bin:
+        db 0x01
+        db 13
+        db 0x0A
+        db 'Kernel.bin'
+        times 43-($-.kernel.bin) db 0
+    
+    .VideoFunctions.lbin:
+        db 0x02
+        db 23
+        db 0x0A
+        db 'VideoFunctions.lbin'
+        times 43-($-.VideoFunctions.lbin) db 0
+
+times 512-($-DescriptorSectorPos) db 0
+
+DataPos:
+
+%include "Filesystem/Kernel.bin.asm"
+%include "Filesystem/VideoFunctions.lbin.asm"

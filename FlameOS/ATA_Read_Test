@@ -1,0 +1,388 @@
+ [ BITS 32 ]
+ [ org 0x1500]
+
+ATA1Port equ 0x1F0
+
+Start:
+    
+    call ATAinit
+    
+    .1:
+    push ax
+        push esi
+            call Sector.ChecksumCalculator
+            
+            mov ebx, esi
+            shr ebx, 16
+            call HexWrite
+            
+            mov ebx, esi
+            call HexWrite
+            
+        pop esi
+        
+        mov edi, esi
+    pop ax
+    push ax
+        mov cx, 1
+        call ATAReadSectors
+    
+        push esi
+    
+            call Sector.ChecksumCalculator
+    
+            mov ebx, esi
+            shr ebx, 16
+            call HexWrite
+    
+            mov ebx, esi
+            call HexWrite
+    
+        pop esi
+        add esi, 200h
+    
+    pop ax
+    inc ax
+    
+    xchg bx, bx
+    
+    jmp .1
+
+ATAinit:
+    pusha
+    
+    mov dx, ATA1Port+7
+    in al, dx
+    
+    cmp al, 0xff
+    je .noDisk
+    
+    mov dx, ATA1Port+6
+    mov al, 0xE0
+    out dx, al
+    
+    inc dx
+    
+    mov cx, 5
+    
+    rep in al, dx
+    
+    mov dx, ATA1Port+5
+    
+    mov al, 0
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    dec dx
+    out dx, al
+    
+    mov dx, ATA1Port+7
+    mov al, 0xEC
+    out dx, al
+    
+    in al, dx
+    
+    cmp al, 0
+    jne .diskFound
+    
+    test al, 0
+    jnz .packetedATA
+    
+    .noDisk:
+        cli
+        hlt
+    
+    .packetedATA:
+        jmp .noDisk
+    
+    .diskFound:
+        in al, dx
+        
+        test al, 7
+        jnz .diskFound
+        
+        mov dx, ATA1Port+4
+        in al, dx
+        
+        cmp al, 0
+        jne .packetedATA
+        
+        mov dx, ATA1Port+7
+        
+        cmp al, 0
+        jne .packetedATA
+        
+        call IOWait
+        
+        mov dx, ATA1Port
+        mov ax, 0x10
+        mov es, ax
+        mov di, 0x7c00
+        mov ecx, 253
+        
+        rep insw
+        
+        mov dx, ATA1Port+7
+        in al, dx
+        
+        popa
+        ret
+    
+ATAReadSectors:  ; edi - buffer location, ax - sector location, cx - ammount of sectors.
+    pusha
+    push cx
+    push ax
+    
+    mov dx, ATA1Port+2
+    mov al, 1
+    
+    out dx, al
+    
+    inc dx
+    
+    pop ax
+    out dx, al
+    
+    inc dx
+    mov al, 0
+    
+    out dx, al
+    
+    inc dx
+    
+    out dx, al
+    
+    mov dx, ATA1Port+7
+    mov al, 20h
+    
+    out dx, al
+    
+    call IOWait
+    
+    .1:
+    
+    mov ecx, 256
+    mov dx, ATA1Port
+    
+    rep insw
+    
+    test al, 0x21
+    jz .fail
+    
+    pop cx
+    
+    cmp cx, 0
+    jne .repeat
+    
+    popa
+    ret
+    
+    .repeat:
+        dec cx
+        push cx
+        jmp .1
+    
+    .fail:
+        mov dx, ATA1Port+1
+        in al, dx
+        
+        mov edi, 0xb8000
+        
+        shr al, 4
+        mov dl, al
+        
+        push edx
+        
+        mov eax, .HEXTABLE
+        add eax, edx
+        mov dl, [eax]
+        mov ah, 0x70
+        mov al, dl
+        
+        mov [edi], ax
+        
+        add edi, 2
+        
+        pop edx
+        
+        shl dl, 4
+        mov al, [esi]
+        sub al, dl
+        mov dl, al
+        mov eax, .HEXTABLE
+        add eax, edx
+        mov dl, [eax]
+        mov ah, 0x70
+        mov al, dl
+        
+        mov [edi], ax
+        
+        jmp $
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+
+Sector:
+    .ChecksumCalculator:
+        pusha
+        
+        xor eax, eax
+        xor ecx, ecx
+        
+        .ChecksumCalculator.loop:
+            cmp cx, 200h
+            je .ChecksumCalculator.end
+            
+            clc
+            add al, byte [esi]
+            
+            jnc .ChecksumCalculator.1
+            
+            clc
+            inc ah
+            
+            jnc .ChecksumCalculator.1
+            
+            add eax, 10000h
+            
+            .ChecksumCalculator.1:
+            
+            inc esi
+            
+            inc cx
+            jmp .ChecksumCalculator.loop
+        
+        .ChecksumCalculator.end:
+        mov [.ChecksumCalculator.Checksum], eax
+        
+        popa
+        mov esi, [.ChecksumCalculator.Checksum]
+        
+        ret
+        
+        .ChecksumCalculator.Checksum: dd 0x00000000
+    
+HexWrite:
+    pusha
+    
+    xor eax, eax
+    
+    mov edi, 0xb8000
+    mov si, [.N]
+    
+    shl esi, 1
+    and esi, 0xffff
+    add edi, esi
+    
+    mov ax, bx
+    shr ax, 12
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 8
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 4
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    xor ax, ax
+    mov [edi], ax
+    
+    add word [.N], 5
+    
+    popa
+    ret
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+    .N: dw 0
+
+IOWait:
+    pusha
+    mov dx, ATA1Port+7
+    
+    .loop:
+        in al, dx
+        
+        test al, 0
+        jnz ATAinit.noDisk
+        
+        test al, 3
+        jz IOWait.loop
+        
+        popa
+        ret
+
+times 8*512-($-$$) db 0
+
+Sector1Checksum:
+    dd 0
+
+times 512-($-Sector1Checksum) db 0
+
+Sector1:
+    dd 0xAAAB
+    dd 0xBBBB
+
+times 512-($-Sector1) db 0
+
+Sector2:
+    dd 0xA2AB
+    dd 0xBB2B
+
+times 512-($-Sector2) db 0
+
+Sector3:
+    dd 0xACAB
+    dd 0xBBCBB
+
+times 512-($-Sector3) db 0
+
+Sector4:
+    dd 0xADDAAB
+    dd 0xBBBDDB
+
+times 512-($-Sector4) db 0
+
+Sector5:
+    dd 0xADEAAB
+    dd 0xBBBEAB
+
+times 512-($-Sector5) db 0

@@ -1,0 +1,489 @@
+ [ BITS 32 ]
+ [ org 0x1500]
+
+ATA1Port equ 0x1F0
+
+start:
+    xchg bx, bx
+    
+    call ATA.init
+    
+    mov edi, InfoSector
+    mov ax, 11
+    mov cx, 1
+    call ATA.ReadSectors
+    
+    ;xchg bx, bx
+    
+    mov edi, InfoSector
+    mov ax, 11
+    mov cx, 1
+    call ATA.ReadSectors
+    
+    ;xchg bx, bx
+    
+    mov ax, 0xADEB
+    cmp ax, [InfoSector]
+    jne .fail
+    
+    xor ecx, ecx
+    mov cl, [InfoSector+6]
+    dec cx
+    xor esi, esi
+    
+    .1:
+        cmp cx, 0
+        je .1.1
+        
+        add esi, 47
+        dec cx
+        jmp .1
+    
+    .1.1:
+    
+    add esi, DescriptorSectors
+    
+    xchg bx, bx
+    
+    mov edi, DescriptorSectors
+    xor eax, eax
+    mov ax, 12
+    xor ecx, ecx
+    mov cl, [InfoSector+7]
+    
+    call ATA.ReadSectors
+        
+    mov al, [esi]
+    cmp al, 1
+    jne .fail
+    
+    xor eax, eax
+    xor ecx, ecx
+    
+    inc esi
+    mov al, [esi]
+    add al, [InfoSector+7]
+    add al, 12
+    inc esi
+    mov cl, [esi]
+    mov edi, DataSectors
+    
+    call ATA.ReadSectors
+    
+    xchg bx, bx
+    
+    jmp DataSectors
+    
+    .fail:
+        jmp $
+    
+ATA:
+    .init:
+        pusha
+        
+        mov dx, ATA1Port+7
+        in al, dx
+        
+        cmp al, 0xff
+        je .init.noDisk
+        
+        mov dx, ATA1Port+6
+        mov al, 0xE0
+        out dx, al
+        
+        inc dx
+        
+        mov cx, 5
+        
+        rep in al, dx
+        
+        mov dx, ATA1Port+5
+        mov al, 0
+        out dx, al
+        
+        dec dx
+        out dx, al
+        
+        dec dx
+        out dx, al
+        
+        dec dx
+        out dx, al
+        
+        dec dx
+        out dx, al
+        
+        mov dx, ATA1Port+7
+        mov al, 0xEC
+        out dx, al
+        
+        in al, dx
+        
+        cmp al, 0
+        jne .init.diskFound
+        
+        test al, 0
+        jnz .init.packetedATA
+        
+        .init.noDisk:
+            cli
+            hlt
+        
+        .init.packetedATA:
+            jmp .init.noDisk
+        
+        .init.diskFound:
+            in al, dx
+            
+            test al, 7
+            jnz .init.diskFound
+            
+            mov dx, ATA1Port+4
+            in al, dx
+            
+            cmp al, 0
+            jne .init.packetedATA
+            
+            mov dx, ATA1Port+7
+            
+            cmp al, 0
+            jne .init.packetedATA
+            
+            call .IOWait
+            
+            mov dx, ATA1Port
+            mov ax, 0x10
+            mov es, ax
+            mov di, 0x7c00
+            mov ecx, 253
+            
+            rep insw
+            
+            mov dx, ATA1Port+7
+            in al, dx
+            
+            popa
+            ret
+            
+    .ReadSectors:  ; edi - buffer location, ax - sector location, cx - ammount of sectors.
+        pusha
+        push cx
+        push ax
+        
+        mov dx, ATA1Port+2
+        mov al, cl
+        
+        out dx, al
+        
+        inc dx
+        
+        pop ax
+        out dx, al
+        
+        inc dx
+        mov al, 0
+        
+        out dx, al
+        
+        inc dx
+        
+        out dx, al
+        
+        mov dx, ATA1Port+7
+        mov al, 20h
+        
+        out dx, al
+        
+        call .IOWait
+        
+        nop
+        nop
+        
+        .ReadSectors.1:
+            mov ecx, 256
+            mov dx, ATA1Port
+            
+            rep insw
+            
+            test al, 0x21
+            jz .ReadSectors.fail
+            
+            pop cx
+            dec cx
+            push cx
+            
+            cmp cx, 0
+            jne .ReadSectors.1
+        
+        pop cx
+        popa
+        ret
+        
+        .ReadSectors.fail:
+            mov dx, ATA1Port+1
+            in al, dx
+            
+            and ax, 00ffh
+            mov bx, ax
+            mov ax, 0
+            call Print.Hex
+            
+            jmp $
+    
+    .IOWait:
+        pusha
+        mov dx, ATA1Port+7
+        
+        .IOWait.loop:
+            in al, dx
+            
+            test al, 0
+            jnz .init.noDisk
+            
+            test al, 3
+            jz .IOWait.loop
+            
+            test al, 6
+            jz .IOWait.loop
+            
+            test al, 7
+            jz .IOWait.loop
+        
+        popa
+        ret
+
+Sector:
+    .Checksum:
+        pusha
+        
+        xor eax, eax
+        xor ecx, ecx
+        
+        .Checksum.loop:
+            cmp cx, 200h
+            je .Checksum.end
+            
+            clc
+            add al, byte [esi]
+            
+            jnc .Checksum.1
+            
+            clc
+            inc ah
+            
+            jnc .Checksum.1
+            
+            add eax, 10000h
+            
+            .Checksum.1:
+            
+            inc esi
+            
+            inc cx
+            jmp .Checksum.loop
+        
+        .Checksum.end:
+        mov [.Checksum.Checksum], eax
+        
+        popa
+        mov esi, [.Checksum.Checksum]
+        
+        ret
+        
+        .Checksum.Checksum: dd 0x00000000
+    
+Print:
+    .Hex:
+    pusha
+    push ax
+    xor eax, eax
+    
+    mov edi, 0xb8000
+    mov si, [.N]
+    
+    shl esi, 1
+    and esi, 0xffff
+    add edi, esi
+    
+    mov ax, bx
+    shr ax, 12
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 8
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    shr ax, 4
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov ax, bx
+    and ax, 0fh
+    mov esi, .HEXTABLE
+    add esi, eax
+    mov al, [esi]
+    mov ah, 0x0f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    add word [.N], 4
+    
+    pop ax
+    
+    cmp ax, 1
+    jnl .end
+    
+    xor ax, ax
+    mov [edi], ax
+    
+    inc word [.N]
+    
+    .end:
+        popa
+        ret
+    
+    .HEXTABLE: db '0123456789ABCDEF'
+    .N: dw 0
+
+times 10*512-($-$$) db 0
+
+InfoSector:
+    dw 0xADEB       ; Signature
+    dd 0x07         ; Checksum (Unused)
+    
+    db 0x01         ; Boot file #
+    
+    db 0x02         ; Size of DescriptorSectors
+    db 0x06         ; # of data sectors (Unused)
+
+times 510-($-InfoSector) db 0
+dw 44AAh
+
+DescriptorSectors:
+
+Loader.bin:
+    db 0x01     ; File type
+    
+    db 0x0      ; File start sector from DataSectors
+    db 0x2      ; File size in sectors
+    
+    .name:
+    
+    db 'Loader.bin' ; File name
+    
+    times 40-($-.name) db 0
+    
+    db 0
+    
+    times 64-($-Loader.bin) db 0
+
+FlGL_Text.lbin:
+    db 0x02
+    
+    db 0x2
+    db 0x3
+    
+    .name:
+    
+    db 'FlGL_Text.lbin'
+    
+    times 40-($-.name) db 0
+    
+    db 0
+    times 64-($-FlGL_Text.lbin) db 0
+
+DiskIO.lbin:
+    db 0x02
+    
+    db 0x5
+    db 0x5
+    
+    .name:
+    
+    db 'diskio.lbin'
+    
+    times 40-($-.name) db 0
+    
+    db 0
+
+    times 64-($-DiskIO.lbin) db 0
+
+Shell.bin:
+    db 0x01
+        
+    db 0xA
+    db 0x30
+    
+    .name:
+    
+    db 'shell.bin'
+    
+    times 40-($-.name) db 0
+    
+    db 0
+    
+    times 64-($-Shell.bin) db 0
+
+PS_2.lbin:
+    db 0x02
+    
+    db 0x3A
+    db 0x5
+    
+    .name:
+    
+    db 'PS/2.lbin'
+    
+    times 40-($-.name) db 0
+    
+    db 0
+    
+    times 64-($-PS_2.lbin) db 0
+
+text_edit.pbin:
+    db 0x03
+    
+    db 0x3F
+    db 0x0A
+    
+    .name:
+    
+    db 'textedit.pbin'
+    
+    times 40-($-.name) db 0
+    
+    db 0
+    
+    times 64-($-text_edit.pbin) db 0
+
+times 2*512-($-DescriptorSectors) db 0
+
+DataSectors:
+    %include "Filesystem/Loader.bin.asm"
+    %include "Filesystem/FlGL_Text.lbin.asm"
+    %include "Filesystem/diskio.lbin.asm"
+    %include "Filesystem/Shell.bin.asm"
+    %include "Filesystem/PS_2.lbin.asm"
+    %include "Filesystem/text-edit.pbin.asm"
+    

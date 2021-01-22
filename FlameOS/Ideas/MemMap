@@ -1,0 +1,15 @@
+-
+0x500   -   0x1500   -   0x1564   -   0x3000       -       0x13400        --        0x13600     --     0x13800       --       0x13A00    -    0x14300     --     0x14600     --     0x15A00     -     16000 - ?
+      Stack         TSS  	 Var         FunctionTable         DascriptorSector         InfoSector         OpenFileRecord         GDT+IDT         Hookpoints          10Loader          VidBuffer
+																						Pointers
+-------------------------------------------------------------------------------------
+
+                                OpenFileRecord-Entry  16-bytes
+    
+    byte    dword   byte     
+    Present         NameLen
+            Offset
+
+
+VAR - 	0x0 - First usable disk number [byte]
+	0x1 - Currently selected disk number [byte]

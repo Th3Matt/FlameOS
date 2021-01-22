@@ -1,0 +1,38 @@
+ [ org 0x7c00 ]
+ [ BITS 16 ]
+
+jmp 0x0000:Boot
+
+%include 'PrintFunc.asm'
+
+Boot:
+    cmp dl, 80h
+    je .HD
+    jnl .FD
+    
+    .CD:
+        mov si, CD
+        jmp .done
+        
+    .HD:
+        mov si, HD
+        jmp .done
+        
+    .FD:
+        mov si, FD
+        jmp .done
+        
+    .done:
+    call printStr
+    
+    mov cx, dx
+    call printHex
+
+    jmp $
+
+HD: dw 'Booting from Hard Disk, device code: ', 0
+FD: dw 'Booting from Floppy Disk, device code: ', 0
+CD: dw 'Booting from CD, device code: ', 0
+    
+times 510-($-$$) db 0
+dw 0xAA55

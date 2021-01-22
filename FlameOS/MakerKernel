@@ -1,0 +1,410 @@
+ [ org 0x1500]
+ [ BITS 32]
+
+Multiboot:
+    call SerialDriver.init
+    
+    mov esi, A1
+    call SerialDriver.sendStr
+    
+    call VDriver.clear
+    
+    mov esi, A2
+    call VDriver.printStr
+    
+    mov esi, Ver
+    call VDriver.printStr
+    
+    call PS_2Driver.init
+    
+    call writeIDT
+    
+    lidt [KIDT.desc]
+    
+    call setPIC
+    
+    mov al, 0x11111101
+    out 0x21, al
+    
+    mov al, 0x10111111
+    out 0xA1, al
+    
+    mov esi, A3
+    call VDriver.printStr
+    
+    mov esi, FakeListOS
+    call VDriver.printStr
+    
+    mov esi, A4
+    call VDriver.printStr
+    
+    sti
+    
+    .OSDecide:
+        cmp byte [PressedKey], 0
+        je .OSDecide
+        
+        cmp byte [PressedKey], '0'
+        je MakerKernel
+        
+        call VDriver.backspace
+        jmp .OSDecide
+
+
+A1: db 'Current FlameLoader version: ', 0
+Ver: db '(0.2)', 1, 0
+A3: db 1, 1, 'Currently installed OSs:', 1, 0
+A4: db 1, 'Choose which OS to boot: ', 0
+FakeListOS: db '0: MakerKernel', 1, 0
+PressedKey: db 0
+
+KIDT:
+    
+    times (256*8) db 0
+    
+    .desc:
+        dw (KIDT - .desc)
+        dd KIDT
+        
+
+writeIDT:
+    pusha
+    
+    mov edi, KIDT+32*8
+        
+    mov eax, IRQ.irq0
+    call .writeEntry
+    
+    mov eax, IRQ.irq1
+    call .writeEntry
+    
+    popa
+    ret
+    
+    .writeEntry:
+        mov [edi], ax
+        
+        shr eax, 16
+        push ax
+        
+        add edi, 2
+        
+        mov ax, KernCodeSelector
+        mov [edi], ax
+        
+        add edi, 2
+        
+        mov al, 0
+        mov ah, 10101110b
+        mov [edi], ax
+        
+        add edi, 2
+        
+        pop ax
+        mov [edi], ax
+        
+        add edi, 2
+        
+        ret
+
+setPIC:
+        mov al, 0x11
+        out 0x20, al
+        
+        mov al, 0x11
+        out 0xA0, al
+        
+        mov al, 0x20
+        out 0x21, al
+        
+        mov al, 0x28
+        out 0xA1, al
+        
+        mov al, 0x04
+        out 0x21, al
+        
+        mov al, 0x02
+        out 0xA1, al
+        
+        mov al, 0x01
+        out 0x21, al
+        
+        mov al, 0x01
+        out 0xA1, al
+        
+        mov al, 0x00
+        out 0x21, al
+        
+        mov al, 0x00
+        out 0xA1, al
+        
+        ret
+
+IRQ:
+    .irq0:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq1:
+        cli
+        pusha
+        cld
+        
+        xor eax, eax
+        in al, 0x60
+        
+        mov edi, PS_2Driver.scanMap
+        add edi, eax
+        mov al, [edi]
+        
+        mov [PressedKey], al
+        
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq2:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq3:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq4:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq5:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq6:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq7:
+        cli
+        pusha
+        cld
+        call IRQ0Handler
+        popa
+        sti
+        iret
+    
+    .irq8:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irq9:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irqA:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+        
+    .irqB:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irqC:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irqD:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irqE:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+    
+    .irqF:
+        cli
+        pusha
+        cld
+        call IRQ8Handler
+        popa
+        sti
+        iret
+
+IRQ0Handler:
+    mov al, 0x20
+    out 0x20, al
+    ret
+
+IRQ8Handler:
+    call IRQ0Handler
+    
+    mov al, 0x20
+    out 0x20, al
+    
+    ret
+
+CPUisr:
+    .ISRMessage: db 'Interrupt ', 0
+    .ISRMessage2: db ' occured.', 0
+    
+    .isr6:
+        pusha
+        
+        call VDriver.newLine
+        
+        mov esi, .ISRMessage
+        call VDriver.printStr
+        
+        mov cx, 6
+        call VDriver.printHex
+        
+        mov esi, .ISRMessage2
+        call VDriver.printStr
+        
+        popa
+        
+        jmp .handler
+    
+    .handler:
+        iret
+
+
+FSH: db '|MKShell-localhost| # ', 0
+PMText: db '32bit Protected mode', 0
+
+%include 'Drivers.asm'
+
+MakerKernel:
+    call VDriver.newLine
+    call VDriver.newLine
+    
+    mov esi, FSH
+    call VDriver.printStr
+    
+    call VDriver.cursorSet
+    
+    call VDriver.cursor
+    
+    lgdt [KGDT.desc]
+    
+    .FShellLoop:
+        cmp byte [PressedKey], 0
+        je .FShellLoop
+        
+        call PS_2Driver.keyboardInput
+        
+        jmp .FShellLoop
+
+KGDT:
+    .NullSeg:
+        dq 0
+        
+    .KernSeg:
+        dw 0FFFFh
+        dw 0
+        
+        db 0
+        db 10011110b
+        db 01000011b
+        db 0
+    
+    .KernDataSeg:
+        dw 0FFFFh
+        dw 0
+        
+        db 0
+        db 10010110b
+        db 01000011b
+        db 0
+    
+    .UsrCodeSeg:
+        dw 0FFFFh
+        dw 0
+        db 4
+        db 10110110b
+        db 01000011b
+        db 0
+    
+    .UsrDataSeg:
+        dw 0FFFFh
+        dw 0
+        db 4
+        db 10110110b
+        db 01000011b
+        db 0
+    
+    .desc:
+        dw .desc - KGDT - 1
+        dd KGDT
+
+KernCodeSelector equ 0x08
+KernDataSelector equ 0x10
+
+%include 'Commands.asm'
+
+times 20*512-($$-$)
