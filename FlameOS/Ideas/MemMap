@@ -11,5 +11,8 @@
             Offset
 
 
-VAR - 	0x0 - First usable disk number [byte]
-	0x1 - Currently selected disk number [byte]
+VAR - 	0x00 - 	    First usable disk number [byte]
+	0x0F - 	    Currently selected disk number [byte]
+	0x10 - 0x13 Active VidBuffer selector [dword]
+	0x14 -      Keyboard control [byte]
+	0x15 - 0x18 Location to put keypress [dword]
