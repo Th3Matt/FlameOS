@@ -1,6 +1,7 @@
 
 GDTTableLoc equ 0x13A00
 IDTTableLoc equ GDTTableLoc-0x1500-0x64+0xFA
+ErrorBackground equ 0x6
 
     [ BITS 32 ]
     [ ORG 0x0 ]
@@ -8,6 +9,11 @@ IDTTableLoc equ GDTTableLoc-0x1500-0x64+0xFA
 KernStart:
     xchg bx, bx
     
+    mov ax, 0x10
+    mov ds, ax
+    mov ss, ax
+    mov sp, 0x1500
+
     mov dx, 0x3DA
     in al, dx
     mov dx, 0x3C0
@@ -25,54 +31,72 @@ KernStart:
         mov dword [edi], 0
         add edi, 4
         
-        cmp edi, 0x25A00
+        cmp edi, 0x14600
         jl .Clear
     
-    mov edi, 0x15A02
-    mov esi, 0x14600+Strings.Panic1
-    mov ecx, (80*3)<<1
+    mov byte [0x15A00], 00000011b
+    mov byte [0x15A01], 0
+    mov dword [0x15A02], 0
     
+    xchg bx, bx
+    mov edi, 0x16000
+    mov esi, 0x14600+Strings.Panic1
+    mov ecx, (80*2)
+    mov ah, 0xC
+
     .Clear2:				; Writing the kernel panic screen to "Cached Screens"...
         mov al, [esi]
-        mov ah, 0x0F
         mov word [edi], ax
         add edi, 2
         inc esi
         
         loop .Clear2
     
-    mov ecx, (80*2)<<1
-    
+    xchg bx, bx
+    mov ecx, (80*3)
+    mov ah, 0x0+(ErrorBackground<<4)
+
     .Clear3:				; ...Writing some more of it in a different color...
         mov al, [esi]
-        mov ah, 0x0C
         mov word [edi], ax
         add edi, 2
         inc esi
         
         loop .Clear3
     
-    mov ecx, (80*13)<<1
-    
+    mov ecx, (80*18)
+    mov ah, 0xF+(ErrorBackground<<4)
+
     .Clear4:				; ... and again ...
         mov al, [esi]
-        mov ah, 0x0F
         mov word [edi], ax
         add edi, 2
         inc esi
         
         loop .Clear4
     
-    mov ecx, (80*6)<<1
+    mov ecx, (80*2)
+    mov ah, 0xC
     
     .Clear5:				; ... and again.
         mov al, [esi]
-        mov ah, 0x0F
         mov word [edi], ax
         add edi, 2
         inc esi
         
         loop .Clear5
+    
+    mov ecx, 8
+    add edi, 0xFA0
+    xchg bx, bx
+
+    .Clear6:				; Adding a Hex conversion table
+        mov ax, [esi]
+        mov word [edi], ax
+        add edi, 2
+        add esi, 2
+        
+        loop .Clear6
     
     mov dword [1500+0x03], 0x1000
     
@@ -269,6 +293,46 @@ KernStart:
     mov cl, 0x10
     mov [edi], ecx
     
+    add edi, 4      ;---------------------50 - Cached system screens.
+		    ;16000 - 16F9F
+    
+    mov bx, 0x6000
+    mov ax, 0x7F3f
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov [edi], bx
+    
+    add edi, 2
+    
+    xor ecx, ecx
+    mov ch, 01010001b
+    shl ecx, 8
+    mov ch, 10010010b
+    mov cl, 0x1
+    mov [edi], ecx
+    
+    add edi, 4      ;---------------------58 - More data.
+		    ;17FA0 - 19000
+    
+    mov bx, 0x7F40
+    mov ax, 0x9000
+    mov [edi], ax
+    
+    add edi, 2
+    
+    mov [edi], bx
+    
+    add edi, 2
+    
+    xor ecx, ecx
+    mov ch, 01010001b
+    shl ecx, 8
+    mov ch, 10010010b
+    mov cl, 0x1
+    mov [edi], ecx
+
     add edi, 4      ;---------------------
     					; Writing GDTR to the end of GDT...
     mov esi, edi
@@ -435,7 +499,7 @@ KernStart:
     
     push edi
     
-    mov edi, 0
+    mov edi, 6
     
     mov ax, 0x38
     mov es, ax
@@ -443,10 +507,10 @@ KernStart:
     mov byte [es:edi], 00000011b	; Setting up System VidBuffer
     inc edi
     inc edi
-    mov dword [es:edi], 0x3000-0x1564
-    mov edi, 0x3000-0x1564
+    mov dword [es:edi], 0xFA0
+    mov edi, 0xFA0
     mov esi, 0
-    mov ax, 0x18
+    mov ax, 0x50
     mov es, ax
     
     screencopyloop:			; Copying current screen to current VidBuffer
@@ -457,6 +521,9 @@ KernStart:
 	
 	cmp esi, 0x50*25
 	jne screencopyloop
+    
+    add byte [ds:0x19], 2
+    mov dword [ds:0x10], 1
     
     sti
 
@@ -490,49 +557,76 @@ KernStart:
     
     xor ecx, ecx
     mov cl, al
-    xor esi, esi
     
     xchg bx, bx
+
+    mov eax, 0
+    mov edx, 0
     
-    selectfileloop:			; Selecting terminal file
+    call StartProgram
+
+StartProgram:
+	pusha
+	push ecx
+
+	xor esi, esi
+
+	selectfileloop:			; Selecting terminal file
 	add esi, 20
 	loop selectfileloop
     
-    dec esi
-    add esi, 0x13000-0x1564
+    	dec esi
+  	add esi, 0x13000-0x1564
     
-    mov al, [es:esi]
-    mov ebx, 10+2+3
-    mov dx, 40h
-    mov es, dx
-    xor edi, edi
-    xchg bx, bx
-    
-    call ATA.readSectors		; Reading terminal file
-    pop edi
-    
-	; 
+ 	mov al, [es:esi]
+ 	mov ebx, edx
+	add ebx, 10+2+3
+ 	mov dx, 40h
+ 	mov es, dx
+	xor edi, edi
+ 	xchg bx, bx
+    	
+	call ATA.readSectors		; Reading terminal file
+ 	xor edi, edi
 
-    mov ax, 0x38
-    mov es, ax
-    
-    add edi, 6
-    					; badcode - implement syscall instead
-    mov byte [es:edi], 00000001b	; used for implementing new vidBrffer for terminal
-    inc edi
-    inc edi
-    mov dword [es:edi], 0x400
+    	mov ax, 0x38
+    	mov es, ax
+    	
+    	add edi, 6
+    	
+	xor eax, eax
+	
+	push ds
+	mov ax, 0x18
+	mov ds, ax
+	mov al, [ds:0x19]
+	pop ds
 
-    	; 
+	mov cx, 6
 
-    pushfd
-    push dword 0x48
-    push dword 0
-    
-    xchg bx, bx
+	.loop:
+		add edi, eax
+		loop .loop
+	
+    	mov byte [es:edi], 00000001b
+    	inc edi
+    	inc edi
+	
+	pop ecx
+	
+   	mov dword [es:edi], ecx
+	
+	popa
+	pusha
 
-    iret
-    
+	pushfd
+    	push dword 0x48
+    	push dword eax
+    	
+   	xchg bx, bx
+
+   	iret
+
 IDT:
     .ModEntry:
 	mov edi, IDTTableLoc-1
@@ -576,14 +670,16 @@ Exceptions:
     
     .GP:
         cli      ;ff4
-        push eax 			; Messing with the stack
+	mov ebp, esp ; Storing stack start
+        push eax 
         push ebx 
         push ecx 
         push edx 
         push edi 
         push esi 
-        add esp, 24 ;fd8
         
+	xchg esp, ebp
+	
         pop eax
         pop ebx
         pop cx
@@ -593,12 +689,14 @@ Exceptions:
         push cx
         push ebx
         
-        sub esp, 24+4
+	xchg esp, ebp
+	sub esp, 4
+	
         push word 'GP'
-        
+        add esp, 6
+	
         call .Panic
         
-        add esp, 2
         pop esi
         pop edi
         pop edx
@@ -622,22 +720,106 @@ Exceptions:
         iret
     
     .Panic:
-        push ax
-        push ecx
+    	xchg bx, bx
+	
+	sub esp, 62+2		; Random offset that may break some things
+	push eax
+	add esp, 62+4
+	pop ax
+
+        push ds
+	push es
+	push ax
         
-        xor ecx, ecx
-        xor eax, eax
-        int 30h				; Using Syscall to switch vidBuffers - ignore this for now
-        
-        pop ecx
-        pop ax
-        add esp, 4
-        pop ax
-        sub esp, 6
-        
+	mov ax, 0x50
+	mov ds, ax
+	mov ax, 0x58
+	mov es, ax
+	
+	pop ax
+	mov edi, (80*10+14)<<1
+
+	mov [ds:edi+2], ah
+	mov [ds:edi], al
+
+	mov ax, cx
+	mov edi, 80*15+9
+	
+	call .HexWrite
+	
+	mov eax, ebx
+	push ax
+	shr eax, 8*2
+	mov edi, 80*17+40
+	
+	call .HexWrite
+
+	pop ax
+
+	call .HexWrite
+
+	sub esp, 62+2+4-4-4
+	pop eax
+	add esp, 62+2-4-4
+	
+	mov edi, 80*10+28
+	
+	push ax
+	shr eax, 16
+	
+	call .HexWrite
+	pop ax
+	call .HexWrite
+	
+	pop es
+	pop ds
+	
+	xchg bx, bx
+	
+	mov ecx, 0
+
+	call Display.ReDraw
+
         xchg bx, bx
         
-        ret
+        cli
+	hlt
+
+    .HexWrite:
+    	push cx	
+	push bx
+
+	mov ch, 0xF+(ErrorBackground<<4)
+	push ax
+	shr ax, 8
+	push ax
+	shr al, 4
+	mov cl, [es:eax]
+	mov [ds:edi*2], cx
+	pop ax
+	and al, 0xF
+	mov cl, [es:eax]
+	inc edi
+	mov [ds:edi*2], cx
+	pop ax
+	
+	and ax, 0xFF
+	push ax
+	shr al, 4
+	mov cl, [es:eax]
+	inc edi
+	mov [ds:edi*2], cx
+	pop ax
+	and al, 0xF
+	mov cl, [es:eax]
+	inc edi
+	mov [ds:edi*2], cx
+	
+	pop dx
+	pop cx
+	
+	inc edi
+	ret
 
 IRQ:
     .Timer:
@@ -795,7 +977,7 @@ PS2:
         test al, 1
         jz .WaitR
         ret
-    
+
 Timer:
     .init:
 	pusha
@@ -842,16 +1024,14 @@ Syscall_:
         
         mov ebx, [fs:eax]
         
-        mov ax, 0x18
-        mov fs, ax
-        
-        mov [fs:4], ebx
+	cli
+        mov [gs:0], ebx
         
         popa
-        call [fs:4]
-        
+        call [gs:0]
+        sti
+
         clc
-        pop fs
         iret
 
 Display:
@@ -1062,7 +1242,7 @@ Display:
 	mov ax, 0x38
 	mov es, ax
 	
-	mov ax, 0x18
+	mov ax, 0x50
 	
 	mov ebx, [es:esi]
 	sub esi, 2
@@ -1314,26 +1494,24 @@ ATA:
 
 Strings:
     .Panic1:
-        db ',------------------------------------------------------------------------------,'
         db '                                                                                '
+        db ',---EXCEPTION----------------------------------------------------------------!!!'
         db '                                                                                '
+	db '                                                                                '
         db '                                                                                '
-    
-    .Panic2:
-        db '                                    EXCEPTION                                   '
-        db '        !!                                                           !!         '
+	db '                                                                                '
     
     .Panic3:
         db '                                                                                '
         db '                                                                                '
         db '                                                                                '
         db '                                                                                '
-        db ' Exception: #// ErrCode: 0x//\\                                                 '
+        db '  Exception: #// ErrCode: 0x//\\                                                '
         db '                                                                                '
         db '                                                                                '
-        db ' EAX: 0x//\\//\\ EBX: 0x//\\//\\ ECX: 0x//\\//\\ EDX: 0x//\\//\\                '
-        db ' ESI: 0x//\\//\\ EDI: 0x//\\//\\                                                '
-        db ' CS:  0x//\\ DS:  0x//\\ SS:  0x//\\                                            '
+        db '  EAX: 0x//\\//\\ EBX: 0x//\\//\\ ECX: 0x//\\//\\ EDX: 0x//\\//\\               '
+        db '  ESI: 0x//\\//\\ EDI: 0x//\\//\\                                               '
+        db '  CS:  0x//\\ DS:  0x//\\ SS:  0x//\\                                           '
         db '                                                                                '
         db '                                EIP:  0x//\\//\\                                '
         db '                                                                                '
@@ -1343,8 +1521,8 @@ Strings:
         db '   |Enter Xit to return to shell, MeM to dump memory, Cnt to continue in EIP|   '
         db '                                                                                '
         db '                                                                                '
+        db '--------------------------------------------------------------------------------'	
         db '                                                                                '
-        db '--------------------------------------------------------------------------------'
     .HexTable:  db '0123456789ABCDEF'
 
 times 10*512-($-$$) db 0
